@@ -34,7 +34,10 @@ def get_parser():
 						type=str, required=True, help='references fasta files directory (REQUIRED)')
 						
 	parser.add_argument('-q', action="store", dest='NAuRA_queries',
-						type=str, required=True, help='NAuRA query text file (REQUIRED)')					
+						type=str, required=True, help='NAuRA query text file (REQUIRED)')		
+
+	parser.add_argument('-latex', action="store", dest='latex_folder_path',
+						type=str, required=True, help='latex folder path (REQUIRED)')							
 						
 	parser.add_argument('--ad', action="store", dest='ADAPTATERS',
 						type=str, default="/global/bio/data/all_known_iontorrent-Illumina.fa", help='Sequencing adaptaters file (default:/global/bio/data/all_known_iontorrent-Illumina.fa)')
@@ -208,6 +211,7 @@ class sample(object) :
 		f = open(self.Artwork_report,'r')
 		last_line = f.readlines()[-1]
 		self.ST = last_line.split("'")[3]
+		self.species = last_line.split("'")[1][1:]
 	
 	def setQuastStats(self):
 		
@@ -656,17 +660,134 @@ def make_kmer_tree(sampleObj_list, RefDir, nbThreads, folder):
 
 	return output_matrix,output_tree,output_pdf
 	
+	
+def make_report(latex_folder_path, sampleObj_list, requester, archive_path, sample_to_reject, kmer_pdf):	
 
+	LATEX_PATH = latex_folder_path
+	REQUESTER = requester
+	ARCHIVE_NAME = os.path.splitext(os.path.basename(archive_path))[0].replace("_","\_")
+	archive_path = os.path.splitext(os.path.basename(archive_path))[0]
+	NB_STRAINS = str(len(sampleObj_list) + len(sample_to_reject))
+	NB_UNANALYZED_STRAINS = str(len(sample_to_reject))
+	
+	REQUESTER_TAB = ""
+	# Strains ID requester}} & \textbf{\textit{Context of Isolation requester}} & \textbf{Date of analysis}
+	# \textit{05CEB51} & \textit{Food} & \today \\
+	ASSEMBLY_QUALITY_TAB = ""
+	# \textbf{\textit{Strains ID requester}} & \textbf{Number of contigs} & \textbf{N50} & \textbf{Closest reference genome}
+	# \textit{05CEB51} & 5 & 2786542 & Staphylococcus\_aureus\_AJ\_938182 \\
+	IDENTIFICATION_TAB = ""
+	# \textbf{\textit{Strains ID requester}} & \textbf{Species} & \textbf{Sequence Type}
+	# \textit{05CEB51} & \textit{aureus} & 5 \\
+	ENTEROTOXIN_TAB = ""
+	# \textbf{\textit{Strain ID requester}} & \textbf{Enterotoxins detected}
+	# %\textit{05CEB51} & seu(2), sex(2), seg(1), sec(1), seo(19), sen(1), sem(1), sel(1), sei(1), seh(1) \\
+	# \textit{05CEB52} & {\color{red} seo(99)}, sen(1) \\
+	
+	for sample in sampleObj_list :
+	
+		ID = sample.id.replace("_","\_")
+		Context = sample.context.replace("_","\_")
+		REQUESTER_TAB = REQUESTER_TAB + "\\textit{" + ID + "} & \\textit{" + Context + "} & \\today \\" + '\n'
+	
+		NbContig = sample.nbContig
+		N50 = sample.N50
+		#Ref = os.path.splitext(os.path.basename(sample.scaffoldingRef))[0].replace("_","\_")
+		Ref = sample.scaffoldingRef.split('/')[-1].split('.')[0].replace("_","\_")
+		ASSEMBLY_QUALITY_TAB = ASSEMBLY_QUALITY_TAB + "\\textit{" + ID + "} & " + NbContig + " & " + N50 + " & " + Ref + " \\" + '\n'
+	
+		Species = sample.species
+		ST = sample.ST
+		IDENTIFICATION_TAB = IDENTIFICATION_TAB + "\\textit{" + ID + "} & \\textit{" + Species + "} & " + ST + " \\" + '\n'
+		
+		SEs = get_SEs_Latex_list(sample)
+		ENTEROTOXIN_TAB = ENTEROTOXIN_TAB + "\\textit{" + ID + "} & " + SEs
+		
+	KMER_TREE_PATH = kmer_pdf
+	NB_ANNEX = str(2 + 3*len(sampleObj_list))
+		
+	f = open(latex_folder_path + "/latex_template.tex", 'r')
+	lines = f.readlines()
+	f.close()
+	report_latex = open(archive_path + "_report.tex", 'w')
+	
+	for line in lines :
+		if "$LATEX_PATH" in line :
+			line = line.replace("$LATEX_PATH",LATEX_PATH)
+		if "$REQUESTER_NAME" in line :
+			line = line.replace("$REQUESTER_NAME",REQUESTER)
+		if "$ARCHIVE_NAME" in line :
+			line = line.replace("$ARCHIVE_NAME",ARCHIVE_NAME)
+		if "$NB_STRAINS" in line :
+			line = line.replace("$NB_STRAINS",NB_STRAINS)
+		if "$NB_UNANALYZED_STRAINS" in line :
+			line = line.replace("$NB_UNANALYZED_STRAINS",NB_UNANALYZED_STRAINS)
+		if "$REQUESTER_TAB" in line :
+			line = line.replace("$REQUESTER_TAB",REQUESTER_TAB)
+		if "$ASSEMBLY_QUALITY_TAB" in line :
+			line = line.replace("$ASSEMBLY_QUALITY_TAB",ASSEMBLY_QUALITY_TAB)
+		if "$IDENTIFICATION_TAB" in line :
+			line = line.replace("$IDENTIFICATION_TAB",IDENTIFICATION_TAB)
+		if "$ENTEROTOXIN_TAB" in line :
+			line = line.replace("$ENTEROTOXIN_TAB",ENTEROTOXIN_TAB)
+		if "$KMER_TREE_PATH" in line :
+			line = line.replace("$KMER_TREE_PATH",KMER_TREE_PATH)
+		if "$NB_ANNEX" in line :
+			line = line.replace("$NB_ANNEX",NB_ANNEX)
+		report_latex.write(line)
+	
+	report_latex.close()
+	
+	os.system("pdflatex " + archive_path + "_report.tex")
+	os.system("pdflatex " + archive_path + "_report.tex")
+	
+	return archive_path + "_report.pdf"
+	
+	
+		
+def get_SEs_Latex_list(sampleObj):
+
+	f = open(sampleObj.naura_matrix,'r')
+	lines = f.readlines()
+	f.close()
+	
+	all_SEs_list = lines[0].rstrip().split('\t')[1:]
+	
+	dico_naura_result = {}
+	i = 0
+	for allele in lines[1].rstrip().split('\t')[1:] :
+		allele = allele.replace(' ','')
+		if allele != '0' :
+			dico_naura_result[all_SEs_list[i]] = allele
+		i += 1
+
+	SEs_latex = ""
+	for SE in sorted(list(dico_naura_result.keys())) :
+		if len(SEs_latex) > 0 :
+				SEs_latex = SEs_latex + ', '
+		if SE in sampleObj.naura_newAlleleDico :
+			SEs_latex = SEs_latex + "{\color{red} " + SE + "(" + sampleObj.naura_newAlleleDico[SE] + ")}"
+		else :
+			SEs_latex = SEs_latex + SE + '(' + dico_naura_result[SE] + ')'
+	
+	SEs_latex = SEs_latex + "\\ \n"	
+	
+	return SEs_latex
+		
+
+
+	
+	
 #main function	
 def main():	
 
 	XLS_FILENAME = "NAuRA_online_request.xlsx"
 	
 	####### variable pour test ####### 
-	folder = "Archive_test"
-	md5 = "238f28bb88e1562a9208173cc674d20e"
-	csv_input = "Archive_test/NAuRA_online_request.csv"
-	confindr_report = "Archive_test/confindr/confindr_report.csv"
+	#folder = "Archive_test"
+	#md5 = "238f28bb88e1562a9208173cc674d20e"
+	#csv_input = "Archive_test/NAuRA_online_request.csv"
+	#confindr_report = "Archive_test/confindr/confindr_report.csv"
 	####### 
 
 	##########################################
@@ -807,7 +928,7 @@ def main():
 	log = open(logFile, 'a')
 	log.write("\n# Combin all matrix from NAuRA output\n\n")
 	log.close()	
-	#NAuRA_combin_filePath = NAuRA_combin_result(sample_list, folder) 	
+	NAuRA_combin_filePath = NAuRA_combin_result(sample_list, folder) 	
 		
 	### run fastosh
 	log = open(logFile, 'a')
@@ -820,6 +941,13 @@ def main():
 	
 	# convert quast tsv to csv (only col 1+2)
 	# tr '\t' ',' < report.tsv | sed 's/^# //g' | cut -d ',' -f 1,2 | sed 's/>=/$\\\geq$/g' | sed 's/%/\\\%/g' | sed 's/_/-/g' > report.csv
+		
+		
+	### make starflow report
+	requester = "XXX"
+	starflow_report = make_report(Arguments.latex_folder_path, sample_list, requester, Arguments.archive_path, sample_to_reject, kmer_pdf)
+		
+		
 		
 if __name__ == "__main__":
 	main()

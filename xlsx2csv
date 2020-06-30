@@ -1,0 +1,4 @@
+#!/global/conda/envs/naura/bin/python
+# EASY-INSTALL-SCRIPT: 'xlsx2csv==0.7.6','xlsx2csv'
+__requires__ = 'xlsx2csv==0.7.6'
+__import__('pkg_resources').run_script('xlsx2csv==0.7.6', 'xlsx2csv')
