@@ -7,6 +7,7 @@ import glob
 import uuid 
 import re
 import datetime
+from Bio import Phylo
 
 
 def get_parser():
@@ -180,7 +181,7 @@ class sample(object) :
 		
 		self.fastq1 = result_folder + os.path.basename(self.fastq1)
 		self.fastq2 = result_folder + os.path.basename(self.fastq2)
-		self.contig = result_folder + self.id + "_contig.fasta"
+		self.contig = result_folder + self.id + "_contigs.fasta"
 		self.assembly =  result_folder + self.id + "_assembly.fasta"
 		self.vcf =  result_folder + self.id + ".vcf"
 		self.mash =  result_folder + self.id + ".msh"
@@ -652,13 +653,19 @@ def make_kmer_tree(sampleObj_list, RefDir, nbThreads, folder):
 	os.system("mv " + output_matrix + ".tsv " + output_tree + ".nwk " + folder)
 	output_matrix = folder + '/' + output_matrix + ".tsv"
 	output_tree = folder + '/' + output_tree + ".nwk"
-	output_pdf = folder + "/kmer_tree.pdf"
 	
-	figtree_command = "figtree -graphic PDF " + output_tree + " " + output_pdf
-	command = '/bin/bash -c "source /global/conda/bin/activate fastosh; ' + figtree_command + '"'
-	os.system(command)
+	output_txt = folder + "/kmer_tree.txt"
+	f = open(output_txt,'w')
+	tree = Phylo.read(output_tree, "newick")
+	Phylo.draw_ascii(tree,file=f)
+	f.close()
+	
+	#output_pdf = folder + "/kmer_tree.pdf"
+	#figtree_command = "figtree -graphic PDF " + output_tree + " " + output_pdf
+	#command = '/bin/bash -c "source /global/conda/bin/activate fastosh; ' + figtree_command + '"'
+	#os.system(command)
 
-	return output_matrix,output_tree,output_pdf
+	return output_matrix,output_tree,output_txt
 	
 	
 def make_report(latex_folder_path, sampleObj_list, requester, archive_path, sample_to_reject, kmer_pdf):	
@@ -669,6 +676,11 @@ def make_report(latex_folder_path, sampleObj_list, requester, archive_path, samp
 	archive_path = os.path.splitext(os.path.basename(archive_path))[0]
 	NB_STRAINS = str(len(sampleObj_list) + len(sample_to_reject))
 	NB_UNANALYZED_STRAINS = str(len(sample_to_reject))
+	
+	f = open(kmer_pdf,'r')
+	lines = f.readlines()
+	f.close()
+	KMER_TREE_PATH = ''.join(lines)
 	
 	REQUESTER_TAB = ""
 	# Strains ID requester}} & \textbf{\textit{Context of Isolation requester}} & \textbf{Date of analysis}
@@ -703,7 +715,7 @@ def make_report(latex_folder_path, sampleObj_list, requester, archive_path, samp
 		SEs = get_SEs_Latex_list(sample)
 		ENTEROTOXIN_TAB = ENTEROTOXIN_TAB + "\\textit{" + ID + "} & " + SEs
 		
-	KMER_TREE_PATH = kmer_pdf
+	#KMER_TREE_PATH = kmer_pdf
 	NB_ANNEX = str(2 + 3*len(sampleObj_list))
 		
 	f = open(latex_folder_path + "/latex_template.tex", 'r')
@@ -743,8 +755,7 @@ def make_report(latex_folder_path, sampleObj_list, requester, archive_path, samp
 	
 	return archive_path + "_report.pdf"
 	
-	
-		
+			
 def get_SEs_Latex_list(sampleObj):
 
 	f = open(sampleObj.naura_matrix,'r')
@@ -775,6 +786,23 @@ def get_SEs_Latex_list(sampleObj):
 	return SEs_latex
 		
 
+def make_result_archive(starflow_report, quast_report, contigs, assembly, NAuRA, newick, pwd, archive_path):
+	
+	archive_path = os.path.splitext(os.path.basename(archive_path))[0]
+	output_dir = "starflow_result_for_" + archive_path
+	os.mkdir(output_dir)
+	
+	os.system("cp " + starflow_report + " " + output_dir + "/.")
+	os.system("cp " + quast_report + " " + output_dir + "/.")
+	os.system("cp " + contigs + " " + output_dir + "/.")
+	os.system("cp " + assembly + " " + output_dir + "/.")
+	os.system("cp " + NAuRA + " " + output_dir + "/.")
+	os.system("cp " + newick + " " + output_dir + "/.")
+	
+	os.system("zip -P " + pwd + " -r " + output_dir + ".zip " + output_dir)
+	
+	return output_dir
+	
 
 	
 	
@@ -910,7 +938,6 @@ def main():
 		log.close()	
 		write_summary_results(Arguments.resulTab, sample)
 		
-		sample.assembly = "Archive_test/artwork/artwork_results_for_05CEB51/05CEB51_assembly.fasta"
 		
 	### remove sample to reject
 	if len(sample_to_reject)>0:
@@ -944,9 +971,33 @@ def main():
 		
 		
 	### make starflow report
+	log = open(logFile, 'a')
+	log.write("\n# Make final starflow report\n\n")
+	log.close()	
 	requester = "XXX"
 	starflow_report = make_report(Arguments.latex_folder_path, sample_list, requester, Arguments.archive_path, sample_to_reject, kmer_pdf)
 		
+		
+	### make zip
+	log = open(logFile, 'a')
+	log.write("\n# make final zip\n\n")
+	log.close()	
+	quast_report = ""
+	contigs = ""
+	assembly = ""
+	for sample in sample_list:
+		quast_report = quast_report + " " + sample.quast_report
+		contigs = contigs + " " + sample.contig
+		assembly = assembly + " " + sample.assembly
+	make_result_archive(starflow_report, quast_report, contigs, assembly, NAuRA_combin_filePath, kmer_tree, Arguments.archive_password, Arguments.archive_path)
+	
+	
+	### Cleaning
+	log = open(logFile, 'a')
+	log.write("\n# cleaning\n\n")
+	name = os.path.splitext(os.path.basename(Arguments.archive_path))[0]
+	os.system("rm -r " + name + " " + name + "_report.* starflow_result_for_" + name)
+	log.close()	
 		
 		
 if __name__ == "__main__":
